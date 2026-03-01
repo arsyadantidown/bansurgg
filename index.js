@@ -14,11 +14,14 @@ const {
   createAudioPlayer,
   createAudioResource,
   AudioPlayerStatus,
-  VoiceConnectionStatus,
-  entersState
+  StreamType
 } = require("@discordjs/voice");
 
-const path = require("path");
+const prism = require("prism-media");
+const ffmpeg = require("ffmpeg-static");
+
+process.on("unhandledRejection", console.error);
+process.on("uncaughtException", console.error);
 
 const client = new Client({
   intents: [
@@ -59,57 +62,78 @@ client.once("ready", async () => {
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
+  // ========================= JOIN =========================
   if (interaction.commandName === "join") {
-
-    await interaction.deferReply(); // biar ga timeout
 
     const channel = interaction.member.voice.channel;
 
-    if (!channel)
-      return interaction.editReply("Masuk voice dulu.");
+    if (!channel) {
+      return interaction.reply({
+        content: "Masuk voice dulu.",
+        ephemeral: true
+      });
+    }
 
-    if (getVoiceConnection(interaction.guild.id))
-      return interaction.editReply("Bot sudah ada di voice.");
+    if (getVoiceConnection(interaction.guild.id)) {
+      return interaction.reply("Bot sudah ada di voice.");
+    }
 
-    const connection = joinVoiceChannel({
-      channelId: channel.id,
-      guildId: channel.guild.id,
-      adapterCreator: channel.guild.voiceAdapterCreator,
-      selfDeaf: false
-    });
+    await interaction.reply("Bot masuk voice...");
 
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+    try {
 
-    const player = createAudioPlayer();
+      const connection = joinVoiceChannel({
+        channelId: channel.id,
+        guildId: channel.guild.id,
+        adapterCreator: channel.guild.voiceAdapterCreator,
+        selfDeaf: false
+      });
 
-    const resource = createAudioResource(
-      path.join(__dirname, "silent.mp3")
-    );
+      const player = createAudioPlayer();
 
-    player.play(resource);
-    connection.subscribe(player);
+      // Generate infinite silent audio via ffmpeg
+      const silentStream = new prism.FFmpeg({
+        args: [
+          "-f", "lavfi",
+          "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+          "-f", "opus",
+          "-"
+        ],
+        ffmpeg
+      });
 
-    player.on(AudioPlayerStatus.Idle, () => {
-      player.play(createAudioResource(
-        path.join(__dirname, "silent.mp3")
-      ));
-    });
+      const resource = createAudioResource(silentStream, {
+        inputType: StreamType.Opus
+      });
 
-    interaction.editReply("Bot masuk voice dan stay 24/7.");
+      player.play(resource);
+      connection.subscribe(player);
+
+      player.on(AudioPlayerStatus.Idle, () => {
+        player.play(resource);
+      });
+
+      await interaction.editReply("Bot berhasil join dan stay 24/7.");
+
+    } catch (err) {
+      console.error(err);
+      await interaction.editReply("Terjadi error saat join voice.");
+    }
   }
 
+  // ========================= LEAVE =========================
   if (interaction.commandName === "leave") {
 
     const connection = getVoiceConnection(interaction.guild.id);
 
-    if (!connection)
-      return interaction.reply({ 
-        content: "Bot tidak ada di voice.", 
-        ephemeral: true 
+    if (!connection) {
+      return interaction.reply({
+        content: "Bot tidak ada di voice.",
+        ephemeral: true
       });
+    }
 
     connection.destroy();
-
     return interaction.reply("Bot keluar voice.");
   }
 });
