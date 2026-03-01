@@ -1,25 +1,24 @@
 require("dotenv").config();
 
-const { 
-  Client, 
-  GatewayIntentBits, 
-  SlashCommandBuilder, 
-  REST, 
-  Routes 
+const {
+  Client,
+  GatewayIntentBits,
+  SlashCommandBuilder,
+  REST,
+  Routes
 } = require("discord.js");
 
-const { 
+const {
   joinVoiceChannel,
   getVoiceConnection,
   createAudioPlayer,
   createAudioResource,
-  VoiceConnectionStatus,
   AudioPlayerStatus,
-  entersState,
-  StreamType
+  VoiceConnectionStatus,
+  entersState
 } = require("@discordjs/voice");
 
-const { Readable } = require("stream");
+const path = require("path");
 
 const client = new Client({
   intents: [
@@ -57,30 +56,20 @@ client.once("ready", async () => {
   console.log("Slash command registered.");
 });
 
-function createSilentStream() {
-  const silenceFrame = Buffer.alloc(3840); 
-  return new Readable({
-    read() {
-      this.push(silenceFrame);
-    }
-  });
-}
-
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "join") {
 
+    await interaction.deferReply(); // biar ga timeout
+
     const channel = interaction.member.voice.channel;
 
     if (!channel)
-      return interaction.reply({ 
-        content: "Masuk voice dulu.", 
-        ephemeral: true 
-      });
+      return interaction.editReply("Masuk voice dulu.");
 
     if (getVoiceConnection(interaction.guild.id))
-      return interaction.reply("Bot ada di voice kocak");
+      return interaction.editReply("Bot sudah ada di voice.");
 
     const connection = joinVoiceChannel({
       channelId: channel.id,
@@ -92,31 +81,21 @@ client.on("interactionCreate", async interaction => {
     await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
 
     const player = createAudioPlayer();
-    const resource = createAudioResource(createSilentStream(), {
-      inputType: StreamType.Raw
-    });
+
+    const resource = createAudioResource(
+      path.join(__dirname, "silent.mp3")
+    );
 
     player.play(resource);
     connection.subscribe(player);
 
     player.on(AudioPlayerStatus.Idle, () => {
-      player.play(createAudioResource(createSilentStream(), {
-        inputType: StreamType.Raw
-      }));
+      player.play(createAudioResource(
+        path.join(__dirname, "silent.mp3")
+      ));
     });
 
-    connection.on(VoiceConnectionStatus.Disconnected, async () => {
-      try {
-        await Promise.race([
-          entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-          entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
-        ]);
-      } catch {
-        connection.destroy();
-      }
-    });
-
-    return interaction.reply("aw");
+    interaction.editReply("Bot masuk voice dan stay 24/7.");
   }
 
   if (interaction.commandName === "leave") {
@@ -125,7 +104,7 @@ client.on("interactionCreate", async interaction => {
 
     if (!connection)
       return interaction.reply({ 
-        content: "gada bot kocak", 
+        content: "Bot tidak ada di voice.", 
         ephemeral: true 
       });
 
