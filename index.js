@@ -13,12 +13,9 @@ const {
   getVoiceConnection,
   createAudioPlayer,
   createAudioResource,
-  AudioPlayerStatus,
-  StreamType
+  StreamType,
+  AudioPlayerStatus
 } = require("@discordjs/voice");
-
-const prism = require("prism-media");
-const ffmpeg = require("ffmpeg-static");
 
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
@@ -62,7 +59,6 @@ client.once("ready", async () => {
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  // ========================= JOIN =========================
   if (interaction.commandName === "join") {
 
     const channel = interaction.member.voice.channel;
@@ -78,50 +74,32 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply("Bot sudah ada di voice.");
     }
 
-    await interaction.reply("Bot masuk voice...");
+    await interaction.reply("Bot berhasil join dan stay 24/7.");
 
-    try {
+    const connection = joinVoiceChannel({
+      channelId: channel.id,
+      guildId: channel.guild.id,
+      adapterCreator: channel.guild.voiceAdapterCreator,
+      selfDeaf: false
+    });
 
-      const connection = joinVoiceChannel({
-        channelId: channel.id,
-        guildId: channel.guild.id,
-        adapterCreator: channel.guild.voiceAdapterCreator,
-        selfDeaf: false
-      });
+    const player = createAudioPlayer();
 
-      const player = createAudioPlayer();
+    const silence = Buffer.from([0xF8, 0xFF, 0xFE]);
 
-      // Generate infinite silent audio via ffmpeg
-      const silentStream = new prism.FFmpeg({
-        args: [
-          "-f", "lavfi",
-          "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
-          "-f", "opus",
-          "-"
-        ],
-        ffmpeg
-      });
-
-      const resource = createAudioResource(silentStream, {
+    function play() {
+      const resource = createAudioResource(silence, {
         inputType: StreamType.Opus
       });
-
       player.play(resource);
-      connection.subscribe(player);
-
-      player.on(AudioPlayerStatus.Idle, () => {
-        player.play(resource);
-      });
-
-      await interaction.editReply("Bot berhasil join dan stay 24/7.");
-
-    } catch (err) {
-      console.error(err);
-      await interaction.editReply("Terjadi error saat join voice.");
     }
+
+    play();
+    connection.subscribe(player);
+
+    player.on(AudioPlayerStatus.Idle, play);
   }
 
-  // ========================= LEAVE =========================
   if (interaction.commandName === "leave") {
 
     const connection = getVoiceConnection(interaction.guild.id);
